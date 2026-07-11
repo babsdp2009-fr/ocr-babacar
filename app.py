@@ -7,11 +7,8 @@ import streamlit as st
 from PIL import Image
 import pytesseract
 import pypdf
-import docx2txt
 from docx import Document  
 from fpdf import FPDF  
-from deep_translator import GoogleTranslator  
-from pdf2image import convert_from_bytes  
 
 # =====================================================================
 # 1. CONFIGURATION TESSERACT (Solution adaptative Local PC vs Serveur)
@@ -19,22 +16,20 @@ from pdf2image import convert_from_bytes
 chemin_tesseract_windows = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 if os.path.exists(chemin_tesseract_windows):
-    # Configuration pour ton PC Windows local
     pytesseract.pytesseract.tesseract_cmd = chemin_tesseract_windows
     os.environ['TESSDATA_PREFIX'] = r'C:\Program Files\Tesseract-OCR\tessdata'
 else:
-    # Configuration automatique pour le serveur Linux de Streamlit Cloud
     pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
 
 
 # Configuration générale de la page
-st.set_page_config(page_title="OCR de Babacar", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="ID Scanner Recto-Verso", layout="wide", initial_sidebar_state="collapsed")
 
-# --- INITIALISATION DE LA MÉMOIRE (Session State) ---
-if "texte_extrait" not in st.session_state:
-    st.session_state.texte_extrait = ""
-if "fichier_actuel" not in st.session_state:
-    st.session_state.fichier_actuel = None
+# --- INITIALISATION DE LA MÉMOIRE ---
+if "donnees_combinees" not in st.session_state:
+    st.session_state.donnees_combinees = None
+if "texte_brut_total" not in st.session_state:
+    st.session_state.texte_brut_total = ""
 
 # --- DESIGN & CSS STYLE SCRIPT ---
 st.markdown("""
@@ -42,20 +37,6 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    
-    div[data-testid="stFileUploader"] section div div {
-        display: none !important;
-    }
-    div[data-testid="stFileUploaderDropzone"] small {
-        display: none !important;
-    }
-    
-    [data-testid="sidebar-toggle"] {
-        display: none !important;
-    }
-    section[data-testid="stSidebar"] {
-        display: none !important;
-    }
     
     .stApp {
         background: linear-gradient(135deg, #0f0c20 0%, #15102a 100%);
@@ -78,26 +59,17 @@ st.markdown("""
         text-align: center;
         color: #b3b0cb;
         font-size: 1.2rem;
-        margin-bottom: 50px;
+        margin-bottom: 40px;
     }
 
     div[data-testid="stVerticalBlock"] > div:has(div.stImage) {
         background-color: #1e1938;
         border-radius: 15px;
-        padding: 25px;
+        padding: 20px;
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
         border: 1px solid rgba(255, 255, 255, 0.05);
     }
     
-    .stFileUploader {
-        background-color: #1e1938;
-        border: 2px dashed #7f00ff;
-        border-radius: 12px;
-        padding: 20px;
-        max-width: 800px;
-        margin: 0 auto 30px auto;
-    }
-
     .stButton > button {
         background: linear-gradient(45deg, #7f00ff, #ff007f) !important;
         color: white !important;
@@ -116,231 +88,174 @@ st.markdown("""
         box-shadow: 0 6px 20px rgba(255, 0, 127, 0.6) !important;
     }
     
-    div.stDownloadButton > button {
-        background: #1e1938 !important;
-        color: #00ffcc !important;
-        border: 1px solid #3d356b !important;
-        box-shadow: none !important;
-        font-size: 0.95rem !important;
-        padding: 10px 15px !important;
-        margin-bottom: 10px;
-    }
-    div.stDownloadButton > button:hover {
-        background: #3d356b !important;
-        border-color: #00ffcc !important;
-    }
-    
-    .stTextArea textarea {
-        background-color: #0d0a1b !important;
-        color: #00ffcc !important;
-        font-family: 'Courier New', monospace !important;
-        border: 1px solid #3d356b !important;
-        border-radius: 10px !important;
-        font-size: 1.05rem !important;
-    }
-
-    .preview-box {
-        background-color: #0d0a1b;
-        color: #ffffff;
-        font-family: 'Courier New', monospace;
-        border: 1px solid #3d356b;
-        border-radius: 10px;
-        padding: 15px;
-        max-height: 250px;
-        overflow-y: auto;
-        white-space: pre-wrap;
-        margin-top: 10px;
-        font-size: 1.05rem;
-    }
-    .highlight {
-        background-color: #ffcc00 !important;
-        color: #000000 !important;
-        font-weight: bold;
-        border-radius: 3px;
-        padding: 0 2px;
+    .id-card-box {
+        background-color: #1a153a;
+        border-left: 5px solid #00ffcc;
+        padding: 20px;
+        border-radius: 8px;
+        margin-top: 20px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
     }
     </style>
 """, unsafe_allow_html=True)
 
 st.markdown('<h1 class="main-title">OCR de Babacar</h1>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Plateforme professionnelle de numérisation, traduction et analyse de documents</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Scanner Intelligent de Cartes d\'Identité (Recto / Verso)</p>', unsafe_allow_html=True)
 
-st.markdown("<div style='text-align: center; font-weight: bold; margin-bottom: 10px;'>📂 Déposez votre document (Image, PDF natif/scanné, Word...)</div>", unsafe_allow_html=True)
-fichier_uploade = st.file_uploader("", type=["png", "jpg", "jpeg", "jfif", "webp", "pdf", "docx"])
-
-if fichier_uploade is not None and fichier_uploade.name != st.session_state.fichier_actuel:
-    st.session_state.texte_extrait = ""
-    st.session_state.fichier_actuel = fichier_uploade.name
-
-if fichier_uploade is not None:
-    col1, col2 = st.columns(2, gap="large")
-    
-    nom_base, extension = os.path.splitext(fichier_uploade.name)
-    extension = extension.lower()
-
-    with col1:
-        st.markdown("<h4 style='color:#7f00ff; margin-bottom: 15px;'>🖼️ Aperçu du Document</h4>", unsafe_allow_html=True)
-        if extension in [".pdf", ".docx"]:
-            st.info(f"📄 Fichier {extension.upper()} détecté : **{fichier_uploade.name}**")
-            st.write("Prêt pour l'extraction de texte.")
-        else:
-            image_pil = Image.open(fichier_uploade)
-            st.image(image_pil, use_container_width=True)
-
-    with col2:
-        st.markdown("<h4 style='color:#ff007f; margin-bottom: 15px;'>⚡ Analyse</h4>", unsafe_allow_html=True)
+# --- FONCTION DE TRAITEMENT D'IMAGE & OCR ---
+def executer_ocr(image_pil):
+    try:
+        img_cv = np.array(image_pil)
+        if len(img_cv.shape) == 3:
+            img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGB2BGR)
+        img_gris = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
         
-        if st.button("🚀 EXTRAIRE LES DONNÉES"):
-            with st.spinner("Analyse et lecture du document en cours..."):
-                texte_brut = ""
+        # Amélioration du contraste pour les textes plastifiés / sécurisés
+        img_traitee = cv2.adaptiveThreshold(img_gris, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+        
+        texte = pytesseract.image_to_string(Image.fromarray(img_traitee), lang='fra+eng', config='--psm 3')
+        return texte
+    except Exception:
+        return ""
+
+# --- FONCTION D'EXTRACTION DES INFORMATIONS ---
+def extraire_donnees_id(texte_total):
+    champs = {
+        "Numéro de Carte / ID": "Non détecté",
+        "Nom": "Non détecté",
+        "Prénom(s)": "Non détecté",
+        "Date de Naissance": "Non détecté",
+        "Sexe": "Non détecté",
+        "Lieu de Naissance / Adresse": "Non détecté"
+    }
+    
+    lignes = [l.strip() for l in texte_total.split('\n') if l.strip()]
+    
+    for i, ligne in enumerate(lignes):
+        ligne_majuscule = ligne.upper()
+        
+        # 1. Extraction du Nom
+        if "NOM" in ligne_majuscule and ":" in ligne:
+            champs["Nom"] = ligne.split(":", 1)[1].strip()
+        elif "SURNAME" in ligne_majuscule and i+1 < len(lignes):
+            champs["Nom"] = lignes[i+1].strip()
+            
+        # 2. Extraction du Prénom
+        if "PRENOM" in ligne_majuscule and ":" in ligne:
+            champs["Prénom(s)"] = ligne.split(":", 1)[1].strip()
+        elif "GIVEN NAMES" in ligne_majuscule and i+1 < len(lignes):
+            champs["Prénom(s)"] = lignes[i+1].strip()
+
+        # 3. Extraction des Dates (Format JJ/MM/AAAA ou JJ.MM.AAAA)
+        dates = re.findall(r'\b\d{2}[/\.-]\d{2}[/\.-]\d{4}\b', ligne)
+        if dates and champs["Date de Naissance"] == "Non détecté":
+            champs["Date de Naissance"] = dates[0]
+            
+        # 4. Numéro de document / Numéro National (Série longue de chiffres/lettres)
+        num_doc = re.search(r'\b\d{4}[0-9A-Z-\s]{6,15}\b', ligne_majuscule)
+        if num_doc and champs["Numéro de Carte / ID"] == "Non détecté":
+            champs["Numéro de Carte / ID"] = num_doc.group(0).strip()
+            
+        # 5. Détection du Sexe
+        if re.search(r'\b(SEXE|SEX)\b', ligne_majuscule):
+            if "M" in ligne_majuscule or "MAS" in ligne_majuscule:
+                champs["Sexe"] = "M (Masculin)"
+            elif "F" in ligne_majuscule or "FEM" in ligne_majuscule:
+                champs["Sexe"] = "F (Féminin)"
                 
-                if extension == ".docx":
-                    texte_brut = docx2txt.process(fichier_uploade)
+        # 6. Détection d'adresse ou lieu
+        if "ADRESSE" in ligne_majuscule and ":" in ligne:
+            champs["Lieu de Naissance / Adresse"] = ligne.split(":", 1)[1].strip()
+
+    # Lecture de la bande MRZ de sécurité (souvent au verso ou bas du passeport)
+    mrz = re.findall(r'[A-Z0-9<]{25,30}', texte_total)
+    if mrz and champs["Numéro de Carte / ID"] == "Non détecté":
+        champs["Numéro de Carte / ID"] = mrz[0].replace('<', '').strip()
+
+    return champs
+
+
+# --- ZONE DE DÉPÔT DES FICHIERS ---
+col_recto, col_verso = st.columns(2, gap="medium")
+
+with col_recto:
+    st.markdown("<h5 style='text-align: center; color:#7f00ff;'>📸 RECTO (Face Avant)</h5>", unsafe_allow_html=True)
+    fichier_recto = st.file_uploader("Déposez le Recto", type=["png", "jpg", "jpeg", "webp"], key="recto")
+    if fichier_recto:
+        img_r = Image.open(fichier_recto)
+        st.image(img_r, use_container_width=True)
+
+with col_verso:
+    st.markdown("<h5 style='text-align: center; color:#ff007f;'>📸 VERSO (Face Arrière)</h5>", unsafe_allow_html=True)
+    fichier_verso = st.file_uploader("Déposez le Verso", type=["png", "jpg", "jpeg", "webp"], key="verso")
+    if fichier_verso:
+        img_v = Image.open(fichier_verso)
+        st.image(img_v, use_container_width=True)
+
+
+# --- BOUTON DE LANCEMENT UNIQUE ---
+st.write("")
+if st.button("🚀 SCANNER ET FUSIONNER LES DEUX FACES"):
+    if not fichier_recto and not fichier_verso:
+        st.error("⚠️ Veuillez déposer au moins une face (Recto ou Verso) de la carte.")
+    else:
+        with st.spinner("Analyse approfondie des deux faces en cours..."):
+            texte_complet = ""
+            
+            if fichier_recto:
+                texte_complet += "\n--- TEXTE RECTO ---\n" + executer_ocr(Image.open(fichier_recto))
+            if fichier_verso:
+                texte_complet += "\n--- TEXTE VERSO ---\n" + executer_ocr(Image.open(fichier_verso))
                 
-                elif extension == ".pdf":
-                    octets_pdf = fichier_uploade.read()
-                    lecteur_pdf = pypdf.PdfReader(io.BytesIO(octets_pdf))
-                    pages_texte = []
-                    
-                    for page in lecteur_pdf.pages:
-                        texte_page = page.extract_text()
-                        if texte_page:
-                            pages_texte.append(texte_page)
-                    texte_brut = "\n".join(pages_texte)
-                    
-                    if not texte_brut.strip():
-                        st.info("ℹ️ PDF scanné détecté. Conversion des pages en images...")
-                        try:
-                            images_pdf = convert_from_bytes(octets_pdf)
-                            textes_ocr_pages = []
-                            for img in images_pdf:
-                                img_cv = np.array(img)
-                                img_gris = cv2.cvtColor(img_cv, cv2.COLOR_RGB2GRAY)
-                                kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-                                img_gris = cv2.filter2D(img_gris, -1, kernel)
-                                img_traitee = cv2.threshold(img_gris, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-                                page_txt = pytesseract.image_to_string(Image.fromarray(img_traitee), lang='eng+fra', config='--psm 6')
-                                textes_ocr_pages.append(page_txt)
-                            texte_brut = "\n".join(textes_ocr_pages)
-                        except Exception:
-                            texte_brut = "ERREUR_PDF_IMAGE"
-                else:
-                    img_cv = np.array(image_pil)
-                    if len(img_cv.shape) == 3:
-                        if img_cv.shape[2] == 4:
-                            img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGBA2BGR)
-                        elif img_cv.shape[2] == 3:
-                            img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGB2BGR)
+            st.session_state.texte_brut_total = texte_complet
+            st.session_state.donnees_combinees = extraire_donnees_id(texte_complet)
 
-                    if len(img_cv.shape) == 3 and img_cv.shape[2] == 3:
-                        img_gris = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-                    else:
-                        img_gris = img_cv.copy()
-                        
-                    kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-                    img_gris = cv2.filter2D(img_gris, -1, kernel)
-                    img_traitee = cv2.threshold(img_gris, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-                    image_a_scanner = Image.fromarray(img_traitee)
-                    texte_brut = pytesseract.image_to_string(image_a_scanner, lang='eng+fra', config='--psm 6')
 
-                if texte_brut not in ["ERREUR_PDF_IMAGE"]:
-                    lignes_nettoyees = []
-                    for ligne in texte_brut.split('\n'):
-                        ligne_propre = re.sub(r'^[=\s«»•\-\*]+', '', ligne).strip()
-                        lignes_nettoyees.append(ligne_propre)
-                    st.session_state.texte_extrait = '\n'.join(lignes_nettoyees)
-                else:
-                    st.session_state.texte_extrait = "ERREUR"
+# --- AFFICHAGE DES RÉSULTATS FUSIONNÉS ---
+if st.session_state.donnees_combinees is not None:
+    st.success("🎉 Scan et fusion terminés avec succès !")
+    
+    # Présentation des données extraites des deux faces
+    st.markdown("<div class='id-card-box'>🪪 <b>Informations Synthétisées de la Pièce d'Identité :</b>", unsafe_allow_html=True)
+    st.table(list(st.session_state.donnees_combinees.items()))
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Zone de modification manuelle
+    st.session_state.texte_brut_total = st.text_area(
+        "📝 Texte brut extrait combiné (Modifiable si besoin de correction) :", 
+        value=st.session_state.texte_brut_total, 
+        height=150
+    )
 
-        # --- ZONE D'AFFICHAGE ET OPTIONS INTÉGRÉES ---
-        if st.session_state.texte_extrait.strip() and st.session_state.texte_extrait != "ERREUR":
-            st.success("🎉 Analyse complétée avec succès !")
-            
-            # 🔍 --- BLOC DE RECHERCHE DYNAMIQUE ---
-            st.markdown("<h5 style='color:#00ffcc; margin-top:10px;'>🔍 Recherche de mots-clés</h5>", unsafe_allow_html=True)
-            mot_recherche = st.text_input("Tapez un mot ou une phrase à chercher :", key="search_input")
-            
-            # Zone d'édition interactive
-            st.session_state.texte_extrait = st.text_area(
-                "📝 Modifier ou corriger le texte extrait :", 
-                value=st.session_state.texte_extrait, 
-                height=200
-            )
-
-            if mot_recherche.strip():
-                occurrences = len(re.findall(re.escape(mot_recherche), st.session_state.texte_extrait, re.IGNORECASE))
-                
-                if occurrences > 0:
-                    st.markdown(f"📊 **{occurrences}** occurrence(s) trouvée(s) pour le mot : `{mot_recherche}`")
-                    pattern = re.compile(rf"({re.escape(mot_recherche)})", re.IGNORECASE)
-                    texte_surligne = pattern.sub(r'<span class="highlight">\1</span>', st.session_state.texte_extrait)
-                    st.markdown(f'<div class="preview-box">{texte_surligne}</div>', unsafe_allow_html=True)
-                else:
-                    st.warning(f"Aucun résultat trouvé pour `{mot_recherche}`.")
-            
-            # --- BLOC DE TRADUCTION AUTOMATIQUE ---
-            st.markdown("<h5 style='color:#ff007f; margin-top:20px;'>🌍 Traduction Automatique</h5>", unsafe_allow_html=True)
-            langues_dispo = {"Anglais": "en", "Français": "fr", "Espagnol": "es", "Arabe": "ar", "Allemand": "de"}
-            
-            lang_col1, lang_col2 = st.columns([2, 1])
-            with lang_col1:
-                langue_cible = st.selectbox("Choisir la langue de destination :", list(langues_dispo.keys()))
-            with lang_col2:
-                st.write("")
-                st.write("")
-                if st.button("🔄 Traduire"):
-                    with st.spinner("Traduction..."):
-                        try:
-                            code_langue = langues_dispo[langue_cible]
-                            texte_traduit = GoogleTranslator(source='auto', target=code_langue).translate(st.session_state.texte_extrait)
-                            st.session_state.texte_extrait = text_traduit
-                            st.rerun()
-                        except Exception:
-                            st.error("Erreur réseau lors de la traduction.")
-
-            # --- ZONE D'EXPORTATION ---
-            st.markdown("<h5 style='color:#00ffcc; margin-top:25px;'>📥 Options d'exportation :</h5>", unsafe_allow_html=True)
-            exp_col1, exp_col2, exp_col3 = st.columns(3)
-            
-            with exp_col1:
-                st.download_button(
-                    label="📄 Fichier Texte (.txt)", data=st.session_state.texte_extrait,
-                    file_name=f"{nom_base}.txt", mime="text/plain", use_container_width=True
-                )
-            
-            with exp_col2:
-                doc = Document()
-                doc.add_paragraph(st.session_state.texte_extrait)
-                buffer_word = io.BytesIO()
-                doc.save(buffer_word)
-                buffer_word.seek(0)
-                st.download_button(
-                    label="📝 Document Word (.docx)", data=buffer_word,
-                    file_name=f"{nom_base}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True
-                )
-            
-            with exp_col3:
-                pdf = FPDF()
-                pdf.add_page()
-                pdf.set_font("Arial", size=11)
-                texte_pdf = st.session_state.texte_extrait.encode('latin-1', 'replace').decode('latin-1')
-                for ligne in texte_pdf.split('\n'):
-                    ligne_nettoyee = ligne.strip()
-                    if not ligne_nettoyee:
-                        pdf.ln(6) 
-                    else:
-                        try:
-                            pdf.multi_cell(w=0, h=6, txt=ligne_nettoyee)
-                        except Exception:
-                            pdf.cell(w=0, h=6, txt=ligne_nettoyee[:50] + "...")
-                            pdf.ln(6)
-                buffer_pdf = io.BytesIO()
-                pdf.output(buffer_pdf)
-                buffer_pdf.seek(0)
-                st.download_button(
-                    label="📕 Document PDF (.pdf)", data=buffer_pdf,
-                    file_name=f"{nom_base}.pdf", mime="application/pdf", use_container_width=True
-                )
-
-        elif st.session_state.texte_extrait == "ERREUR":
-            st.error("❌ Échec de l'extraction. Impossible d'analyser ce document.")
+    # --- ZONE D'EXPORTATION ---
+    st.markdown("<h5 style='color:#00ffcc; margin-top:25px;'>📥 Télécharger le dossier d'extraction :</h5>", unsafe_allow_html=True)
+    exp_col1, exp_col2, exp_col3 = st.columns(3)
+    
+    with exp_col1:
+        st.download_button("📄 Fichier .txt", data=st.session_state.texte_brut_total, file_name="extraction_id.txt", mime="text/plain", use_container_width=True)
+        
+    with exp_col2:
+        doc = Document()
+        doc.add_heading("Rapport d'Extraction Pièce d'Identité", level=1)
+        for k, v in st.session_state.donnees_combinees.items():
+            doc.add_paragraph(f"{k} : {v}")
+        doc.add_heading("Historique Texte Brut", level=2)
+        doc.add_paragraph(st.session_state.texte_brut_total)
+        buf = io.BytesIO()
+        doc.save(buf)
+        buf.seek(0)
+        st.download_button("📝 Fichier .docx (Word)", data=buf, file_name="extraction_id.docx", use_container_width=True)
+        
+    with exp_col3:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", size=12)
+        pdf.cell(200, 10, txt="Synthese Extraction Carte d'Identite", ln=1, align="C")
+        pdf.ln(10)
+        for k, v in st.session_state.donnees_combinees.items():
+            line = f"{k} : {v}".encode('latin-1', 'replace').decode('latin-1')
+            pdf.cell(200, 10, txt=line, ln=1)
+        buf_p = io.BytesIO()
+        pdf.output(buf_p)
+        buf_p.seek(0)
+        st.download_button("📕 Fichier .pdf", data=buf_p, file_name="extraction_id.pdf", use_container_width=True)
