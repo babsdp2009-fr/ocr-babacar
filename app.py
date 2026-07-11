@@ -13,12 +13,21 @@ from fpdf import FPDF
 from deep_translator import GoogleTranslator  
 from pdf2image import convert_from_bytes  
 
-# 1. Configuration Tesseract
-chemin_tesseract = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-pytesseract.pytesseract.tesseract_cmd = chemin_tesseract
-os.environ['TESSDATA_PREFIX'] = r'C:\Program Files\Tesseract-OCR\tessdata'
+# =====================================================================
+# 1. CONFIGURATION TESSERACT (Solution adaptative Local PC vs Serveur)
+# =====================================================================
+chemin_tesseract_windows = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
-# Configurer la page
+if os.path.exists(chemin_tesseract_windows):
+    # Configuration pour ton PC Windows local
+    pytesseract.pytesseract.tesseract_cmd = chemin_tesseract_windows
+    os.environ['TESSDATA_PREFIX'] = r'C:\Program Files\Tesseract-OCR\tessdata'
+else:
+    # Configuration automatique pour le serveur Linux de Streamlit Cloud
+    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+
+
+# Configuration générale de la page
 st.set_page_config(page_title="OCR de Babacar", layout="wide", initial_sidebar_state="collapsed")
 
 # --- INITIALISATION DE LA MÉMOIRE (Session State) ---
@@ -130,7 +139,6 @@ st.markdown("""
         font-size: 1.05rem !important;
     }
 
-    /* Style de la zone de prévisualisation avec surlignage HTML */
     .preview-box {
         background-color: #0d0a1b;
         color: #ffffff;
@@ -259,17 +267,13 @@ if fichier_uploade is not None:
                 height=200
             )
 
-            # Si une recherche est en cours, on calcule et on montre le surlignage HTML juste en dessous
             if mot_recherche.strip():
-                # Compter le nombre d'occurrences (insensible à la casse)
                 occurrences = len(re.findall(re.escape(mot_recherche), st.session_state.texte_extrait, re.IGNORECASE))
                 
                 if occurrences > 0:
                     st.markdown(f"📊 **{occurrences}** occurrence(s) trouvée(s) pour le mot : `{mot_recherche}`")
-                    # Surlignage dynamique via regex HTML
                     pattern = re.compile(rf"({re.escape(mot_recherche)})", re.IGNORECASE)
                     texte_surligne = pattern.sub(r'<span class="highlight">\1</span>', st.session_state.texte_extrait)
-                    # Affichage du résultat surligné
                     st.markdown(f'<div class="preview-box">{texte_surligne}</div>', unsafe_allow_html=True)
                 else:
                     st.warning(f"Aucun résultat trouvé pour `{mot_recherche}`.")
@@ -289,7 +293,7 @@ if fichier_uploade is not None:
                         try:
                             code_langue = langues_dispo[langue_cible]
                             texte_traduit = GoogleTranslator(source='auto', target=code_langue).translate(st.session_state.texte_extrait)
-                            st.session_state.texte_extrait = texte_traduit
+                            st.session_state.texte_extrait = text_traduit
                             st.rerun()
                         except Exception:
                             st.error("Erreur réseau lors de la traduction.")
