@@ -1,0 +1,10 @@
+streamlit
+pytesseract
+pillow
+opencv-python-headless
+pypdf
+docx2txt
+python-docx
+fpdf2
+deep-translator
+pdf2image
